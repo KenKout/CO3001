@@ -1,0 +1,26 @@
+# API Libraries
+fastapi
+python-dotenv
+uvicorn[standard]
+python-jose[cryptography]  # For JWT tokens
+passlib[bcrypt]  # For password hashing
+python-multipart  # For form data
+email-validator  # For email validation
+qrcode  # For QR code generation
+pillow  # Required for QR code
+
+# Database Libraries
+sqlalchemy
+alembic
+bcrypt
+
+# Testing
+pytest
+httpx
+
+# Utils
+python-dateutil
+pytz
+
+# JWT
+python-jose[cryptography]

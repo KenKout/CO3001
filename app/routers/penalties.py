@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
 from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import (
-    User, UserRole, Penalty, PenaltyType, Reservation,
-    Notification, NotificationType
-)
+from ..models import (Notification, NotificationType, Penalty, PenaltyType,
+                      Reservation, User, UserRole)
+from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
@@ -35,10 +35,7 @@ class PenaltyResponse(BaseModel):
 # Helper functions
 def check_admin_access(current_user: User):
     if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+        APIError.forbidden("Admin access required")
 
 def update_user_penalty_points(db: Session, user_id: int):
     """Update user's total penalty points"""
@@ -81,10 +78,7 @@ async def create_penalty(
     # Verify user exists
     user = db.query(User).filter(User.id == penalty.user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+        APIError.not_found("User not found")
 
     # Create penalty
     points = Penalty.get_points_for_type(penalty.type)
@@ -140,10 +134,7 @@ async def get_user_penalties(
 ):
     # Users can view their own penalties, admins can view all
     if current_user.id != user_id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view these penalties"
-        )
+        APIError.forbidden("Not authorized to view these penalties")
 
     # Get user's penalties
     query = db.query(Penalty).filter(Penalty.user_id == user_id)

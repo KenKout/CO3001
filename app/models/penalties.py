@@ -1,9 +1,13 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, Boolean
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from ..database import Base
 import enum
 from datetime import datetime, timedelta
+
+from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Integer,
+                        String)
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from ..database import Base
+
 
 class PenaltyType(str, enum.Enum):
     NO_SHOW = "no_show"

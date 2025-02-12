@@ -1,8 +1,12 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Boolean
+import enum
+
+from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Integer,
+                        String)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
 from ..database import Base
-import enum
+
 
 class ReservationStatus(str, enum.Enum):
     PENDING = "pending"

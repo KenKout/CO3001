@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
 from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Space, SpaceType, SpaceStatus, User, UserRole, Reservation
+from ..models import Reservation, Space, SpaceStatus, SpaceType
+from ..models.users import User, UserRole
+from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
@@ -47,10 +50,7 @@ class SpaceAvailability(BaseModel):
 # Helper functions
 def check_admin_access(current_user: User):
     if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+        APIError.forbidden("Admin access required")
 
 def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
     now = datetime.utcnow()
@@ -175,10 +175,7 @@ async def get_space(
 ):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Space not found"
-        )
+        APIError.not_found("Space not found")
 
     availability = get_space_availability(space, db)
     
@@ -213,10 +210,7 @@ async def update_space(
     
     db_space = db.query(Space).filter(Space.id == space_id).first()
     if not db_space:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Space not found"
-        )
+        APIError.not_found("Space not found")
 
     for field, value in space_update.dict(exclude_unset=True).items():
         setattr(db_space, field, value)
@@ -235,10 +229,7 @@ async def delete_space(
     
     db_space = db.query(Space).filter(Space.id == space_id).first()
     if not db_space:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Space not found"
-        )
+        APIError.not_found("Space not found")
 
     # Soft delete
     db_space.is_active = False

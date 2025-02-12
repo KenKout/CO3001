@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
-from typing import List, Optional
 from datetime import datetime, timedelta
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
+from sqlalchemy import and_, func
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import (
-    User, UserRole, Space, Reservation, Rating, Penalty,
-    ReservationStatus, SpaceStatus
-)
+from ..models import (Penalty, Rating, Reservation, ReservationStatus, Space,
+                      SpaceStatus, User, UserRole)
+from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
@@ -17,10 +17,7 @@ router = APIRouter()
 # Helper functions
 def check_admin_access(current_user: User):
     if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+        APIError.forbidden("Admin access required")
 
 def get_date_range(days: int = 7):
     """Get date range for statistics"""

@@ -1,7 +1,13 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Enum, Boolean
-from sqlalchemy.sql import func
-from ..database import Base
 import enum
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String
+from sqlalchemy.sql import func
+
+from ..database import Base
+
 
 class UserRole(str, enum.Enum):
     STUDENT = "student"
@@ -27,3 +33,32 @@ class User(Base):
 
     def __repr__(self):
         return f"<User {self.email}>"
+
+# Pydantic models for request/response
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: str
+    role: UserRole
+    penalty_points: int
+    average_rating: float
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

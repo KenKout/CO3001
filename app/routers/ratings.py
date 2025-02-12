@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, conint
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import (
-    User, UserRole, Rating, Reservation, ReservationStatus,
-    Notification, NotificationType
-)
+from ..models import (Notification, NotificationType, Rating, Reservation,
+                      ReservationStatus, User, UserRole)
+from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
@@ -34,10 +34,7 @@ class RatingResponse(BaseModel):
 # Helper functions
 def check_admin_access(current_user: User):
     if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+        APIError.forbidden("Admin access required")
 
 def update_user_average_rating(db: Session, user_id: int):
     """Update user's average rating"""
@@ -62,22 +59,13 @@ async def create_rating(
     # Verify reservation exists and is completed
     reservation = db.query(Reservation).filter(Reservation.id == rating.reservation_id).first()
     if not reservation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reservation not found"
-        )
+        APIError.not_found("Reservation not found")
 
     if reservation.status != ReservationStatus.COMPLETED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only rate completed reservations"
-        )
+        APIError.bad_request("Can only rate completed reservations")
 
     if reservation.is_rated:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reservation has already been rated"
-        )
+        APIError.bad_request("Reservation has already been rated")
 
     # Create rating
     db_rating = Rating(
@@ -131,10 +119,7 @@ async def get_user_ratings(
 ):
     # Users can view their own ratings, admins can view all
     if current_user.id != user_id and current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view these ratings"
-        )
+        APIError.forbidden("Not authorized to view these ratings")
 
     # Get user's ratings
     query = db.query(Rating).filter(Rating.user_id == user_id)

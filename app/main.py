@@ -1,17 +1,17 @@
+import logging
+import time
+
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
-import time
-import logging
 
+from .env import API_VERSION, APP_NAME
 from .models import init_db
-from .env import APP_NAME, API_VERSION
-from .routers import (
-    auth, spaces, reservations, ratings,
-    penalties, admin, notifications
-)
+from .routers import (admin, auth, notifications, penalties, ratings,
+                      reservations, spaces)
+from .utils.error_handler import CustomHTTPException, http_exception_handler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +37,10 @@ app.add_middleware(
 init_db()
 
 # Custom exception handlers
+@app.exception_handler(CustomHTTPException)
+async def custom_http_exception_handler(request: Request, exc: CustomHTTPException):
+    return await http_exception_handler(request, exc)
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(

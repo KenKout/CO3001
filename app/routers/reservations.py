@@ -1,18 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
-from typing import List, Optional
-from datetime import datetime, timedelta
-from pydantic import BaseModel
-import qrcode
-import io
 import base64
+import io
+from datetime import datetime, timedelta
+from typing import List, Optional
+
+import qrcode
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import (
-    User, Space, Reservation, ReservationStatus, 
-    SpaceStatus, Notification, NotificationType
-)
+from ..models import (Notification, NotificationType, Reservation,
+                      ReservationStatus, Space, SpaceStatus, User)
+from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
@@ -104,39 +104,24 @@ async def create_reservation(
     ).count()
     
     if active_reservations >= 2:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Maximum number of active reservations reached"
-        )
+        APIError.bad_request("Maximum number of active reservations reached")
 
     # Validate space
     space = db.query(Space).filter(Space.id == reservation.space_id).first()
     if not space or not space.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Space not found or inactive"
-        )
+        APIError.not_found("Space not found or inactive")
 
     # Validate times
     now = datetime.utcnow()
     if reservation.start_time < now:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Start time must be in the future"
-        )
+        APIError.bad_request("Start time must be in the future")
     
     if reservation.end_time <= reservation.start_time:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="End time must be after start time"
-        )
+        APIError.bad_request("End time must be after start time")
 
     # Check for conflicts
     if check_reservation_conflicts(db, space.id, reservation.start_time, reservation.end_time):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Space is already reserved for this time"
-        )
+        APIError.bad_request("Space is already reserved for this time")
 
     # Create reservation
     db_reservation = Reservation(
@@ -189,36 +174,24 @@ async def check_in(
 ):
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reservation not found"
-        )
+        APIError.not_found("Reservation not found")
 
     # Verify user owns the reservation
     if reservation.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to check in for this reservation"
-        )
+        APIError.forbidden("Not authorized to check in for this reservation")
 
     # Check if reservation can be checked in
     now = datetime.utcnow()
     check_in_deadline = reservation.start_time + timedelta(minutes=15)
     
     if reservation.status != ReservationStatus.CONFIRMED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reservation cannot be checked in"
-        )
+        APIError.bad_request("Reservation cannot be checked in")
     
     if now > check_in_deadline:
         # Mark as no-show
         reservation.status = ReservationStatus.NO_SHOW
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Check-in deadline passed"
-        )
+        APIError.bad_request("Check-in deadline passed")
 
     # Perform check-in
     reservation.status = ReservationStatus.CHECKED_IN
@@ -238,22 +211,13 @@ async def check_out(
 ):
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reservation not found"
-        )
+        APIError.not_found("Reservation not found")
 
     if reservation.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to check out for this reservation"
-        )
+        APIError.forbidden("Not authorized to check out for this reservation")
 
     if reservation.status != ReservationStatus.CHECKED_IN:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reservation is not checked in"
-        )
+        APIError.bad_request("Reservation is not checked in")
 
     # Perform check-out
     reservation.status = ReservationStatus.COMPLETED
@@ -273,23 +237,14 @@ async def cancel_reservation(
 ):
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reservation not found"
-        )
+        APIError.not_found("Reservation not found")
 
     if reservation.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to cancel this reservation"
-        )
+        APIError.forbidden("Not authorized to cancel this reservation")
 
     # Check cancellation time limit (24 hours before start)
     if datetime.utcnow() > (reservation.start_time - timedelta(hours=24)):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cancellation must be done at least 24 hours before start time"
-        )
+        APIError.bad_request("Cancellation must be done at least 24 hours before start time")
 
     reservation.status = ReservationStatus.CANCELLED
     db.commit()

@@ -1,44 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from typing import Optional
-from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import User, UserRole
-from ..env import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from ..env import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, SECRET_KEY
+from ..models.users import (Token, TokenData, User, UserCreate, UserLogin,
+                            UserResponse, UserRole)
+from ..utils.error_handler import APIError
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# Pydantic models for request/response
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+class CustomHTTPBearer(HTTPBearer):
+    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials:
+        try:
+            return await super().__call__(request)
+        except Exception:
+            APIError.unauthorized("Not authenticated")
 
-class TokenData(BaseModel):
-    email: Optional[str] = None
-
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-    name: str
-
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    name: str
-    role: UserRole
-    penalty_points: int
-    average_rating: float
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+security = CustomHTTPBearer()
 
 # Helper functions
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -54,26 +38,22 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     try:
+        token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
-            raise credentials_exception
+            APIError.unauthorized()
         token_data = TokenData(email=email)
     except JWTError:
-        raise credentials_exception
+        APIError.unauthorized()
 
     user = db.query(User).filter(User.email == token_data.email).first()
     if user is None:
-        raise credentials_exception
+        APIError.unauthorized()
     return user
 
 # Routes
@@ -82,10 +62,7 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     # Check if user exists
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+        APIError.bad_request("Email already registered")
     
     # Create new user
     hashed_password = get_password_hash(user.password)
@@ -101,17 +78,13 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=dict)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    user_credentials: UserLogin,
     db: Session = Depends(get_db)
 ):
     # Authenticate user
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    user = db.query(User).filter(User.email == user_credentials.email).first()
+    if not user or not verify_password(user_credentials.password, user.hashed_password):
+        APIError.unauthorized("Incorrect email or password")
     
     # Create access token
     access_token = create_access_token(data={"sub": user.email})

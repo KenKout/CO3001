@@ -1,12 +1,12 @@
-from .users import User, UserRole
-from .spaces import Space, SpaceType, SpaceStatus
-from .reservations import Reservation, ReservationStatus
-from .ratings import Rating
-from .penalties import Penalty, PenaltyType
-from .notifications import Notification, NotificationType
-
 # Import Base from database to help with migrations
 from ..database import Base, engine
+from .notifications import Notification, NotificationType
+from .penalties import Penalty, PenaltyType
+from .ratings import Rating
+from .reservations import Reservation, ReservationStatus
+from .spaces import Space, SpaceStatus, SpaceType
+from .users import User, UserRole
+
 
 # Create all tables
 def init_db():

@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import User, Notification, NotificationType
+from ..models import Notification, NotificationType
+from ..models.users import User
+from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
@@ -83,10 +86,7 @@ async def mark_as_read(
     ).first()
 
     if not notification:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Notification not found"
-        )
+        APIError.not_found("Notification not found")
 
     notification.mark_as_read()
     db.commit()

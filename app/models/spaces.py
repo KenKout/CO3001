@@ -1,7 +1,11 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Enum, JSON, Boolean
-from sqlalchemy.sql import func
-from ..database import Base
 import enum
+
+from sqlalchemy import (JSON, Boolean, Column, DateTime, Enum, Float, Integer,
+                        String)
+from sqlalchemy.sql import func
+
+from ..database import Base
+
 
 class SpaceType(str, enum.Enum):
     INDIVIDUAL = "individual"

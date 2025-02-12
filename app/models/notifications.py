@@ -1,8 +1,12 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, Boolean
+import enum
+
+from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Integer,
+                        String)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
 from ..database import Base
-import enum
+
 
 class NotificationType(str, enum.Enum):
     RESERVATION_CONFIRMATION = "reservation_confirmation"

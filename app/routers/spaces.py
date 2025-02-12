@@ -54,30 +54,52 @@ def check_admin_access(current_user: User):
 
 def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
     now = datetime.utcnow()
-    today_end = datetime(now.year, now.month, now.day, 23, 59, 59)
+    today_start = datetime(now.year, now.month, now.day, 9, 0, 0)  # 9 AM
+    today_end = datetime(now.year, now.month, now.day, 16, 0, 0)   # 4 PM
+    
+    # If current time is after end time (4 PM), no slots available
+    if now >= today_end:
+        return SpaceAvailability(
+            next_available=None,
+            today_slots=[]
+        )
     
     # Get today's reservations
     reservations = db.query(Reservation).filter(
         Reservation.space_id == space.id,
-        Reservation.start_time >= now,
+        Reservation.start_time >= today_start,
         Reservation.end_time <= today_end,
         Reservation.status.in_(["confirmed", "checked_in"])
     ).order_by(Reservation.start_time).all()
 
     # Find next available slot
-    next_available = now
+    next_available = max(now, today_start)
+    
+    # Round up to the next hour
+    if next_available.minute > 0 or next_available.second > 0:
+        next_available = (next_available + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+    
     if reservations:
         for res in reservations:
-            if (next_available + timedelta(minutes=30)) < res.start_time:
+            if (next_available + timedelta(hours=1)) < res.start_time:
                 break
             next_available = res.end_time
+            # Round up to the next hour after reservation
+            if next_available.minute > 0 or next_available.second > 0:
+                next_available = (next_available + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
 
     # Get available slots
     slots = []
-    current_time = now
+    current_time = today_start
     while current_time < today_end:
-        slot_end = current_time + timedelta(hours=2)
+        slot_end = current_time + timedelta(hours=1)
         is_available = True
+        
+        # Skip slots that start before or at current time
+        if current_time <= now:
+            current_time = slot_end
+            continue
+            
         for res in reservations:
             if (current_time < res.end_time and slot_end > res.start_time):
                 is_available = False
@@ -87,7 +109,7 @@ def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
                 "start": current_time,
                 "end": slot_end
             })
-        current_time += timedelta(minutes=30)
+        current_time += timedelta(hours=1)
 
     return SpaceAvailability(
         next_available=next_available,
@@ -111,7 +133,7 @@ def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
                                     "id": 1,
                                     "name": "Study Room A",
                                     "capacity": 4,
-                                    "type": "STUDY_ROOM",
+                                    "type": "individual",
                                     "status": "AVAILABLE",
                                     "equipment": ["whiteboard", "projector"],
                                     "location": "Building A, Floor 2",
@@ -168,7 +190,7 @@ async def list_spaces(
     """
     List all available spaces with optional filtering.
     
-    - **type**: Filter by space type (e.g., STUDY_ROOM, MEETING_ROOM)
+    - **type**: Filter by space type (e.g., individual, group, meeting, quiet)
     - **capacity**: Filter by minimum capacity
     - **equipment**: Filter by specific equipment
     - **status**: Filter by space status
@@ -235,7 +257,7 @@ async def list_spaces(
                         "id": 1,
                         "name": "Study Room A",
                         "capacity": 4,
-                        "type": "STUDY_ROOM",
+                        "type": "individual",
                         "location": "Building A, Floor 2",
                         "description": "Quiet study room with whiteboard",
                         "equipment": ["whiteboard", "projector"],
@@ -262,7 +284,7 @@ async def create_space(
     
     - **name**: Name of the space
     - **capacity**: Maximum capacity
-    - **type**: Type of space (e.g., STUDY_ROOM, MEETING_ROOM)
+    - **type**: Type of space (e.g., individual, group, meeting, quiet)
     - **location**: Physical location of the space
     - **description**: Optional description
     - **equipment**: List of available equipment
@@ -289,7 +311,7 @@ async def create_space(
                             "id": 1,
                             "name": "Study Room A",
                             "capacity": 4,
-                            "type": "STUDY_ROOM",
+                            "type": "individual",
                             "status": "AVAILABLE",
                             "equipment": ["whiteboard", "projector"],
                             "location": "Building A, Floor 2",
@@ -359,7 +381,7 @@ async def get_space(
                         "id": 1,
                         "name": "Study Room A (Updated)",
                         "capacity": 6,
-                        "type": "STUDY_ROOM",
+                        "type": "individual",
                         "location": "Building A, Floor 2",
                         "description": "Updated description",
                         "equipment": ["whiteboard", "projector", "computer"],

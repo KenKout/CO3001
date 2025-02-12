@@ -66,12 +66,59 @@ def check_user_restrictions(penalty_points: int) -> dict:
     }
 
 # Routes
-@router.post("/admin/penalties", response_model=dict)
+@router.post(
+    "/admin/penalties",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "Penalty successfully created",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "penalty_id": 1,
+                            "type": "NO_SHOW",
+                            "points": 2,
+                            "expires_at": "2024-03-12T13:00:00",
+                            "user_status": {
+                                "total_points": 2,
+                                "restrictions": {
+                                    "has_restrictions": False,
+                                    "can_make_reservation": True,
+                                    "is_suspended": False,
+                                    "restriction_level": "none"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"},
+        404: {"description": "User not found"}
+    }
+)
 async def create_penalty(
     penalty: PenaltyCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Create a new penalty for a user (Admin only).
+    
+    - **user_id**: ID of the user to penalize
+    - **type**: Type of penalty (e.g., NO_SHOW, LATE_CHECK_IN)
+    - **reservation_id**: Optional ID of related reservation
+    - **description**: Optional description of the penalty
+    
+    Notes:
+    - Penalties expire after 30 days
+    - Points vary by penalty type
+    - Users with ≥5 points have booking restrictions
+    - Users with ≥8 points are suspended
+    """
     # Verify admin access
     check_admin_access(current_user)
 
@@ -123,7 +170,48 @@ async def create_penalty(
         }
     }
 
-@router.get("/users/{user_id}/penalties", response_model=dict)
+@router.get(
+    "/users/{user_id}/penalties",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved user penalties",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "user_id": 1,
+                            "current_penalty_points": 2,
+                            "can_make_reservation": True,
+                            "restrictions": {
+                                "has_restrictions": False,
+                                "level": "none",
+                                "details": None
+                            },
+                            "penalty_history": [
+                                {
+                                    "penalty_id": 1,
+                                    "type": "NO_SHOW",
+                                    "points": 2,
+                                    "description": "Missed reservation",
+                                    "reservation_id": 123,
+                                    "created_at": "2024-02-12T13:00:00",
+                                    "expires_at": "2024-03-12T13:00:00",
+                                    "is_active": True
+                                }
+                            ],
+                            "total": 1,
+                            "page": 1,
+                            "per_page": 10
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized to view these penalties"}
+    }
+)
 async def get_user_penalties(
     user_id: int,
     include_expired: bool = False,
@@ -132,6 +220,18 @@ async def get_user_penalties(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get penalties for a specific user.
+    
+    - **user_id**: ID of the user to get penalties for
+    - **include_expired**: Include expired penalties in the response
+    - **page**: Page number for pagination (starts at 1)
+    - **per_page**: Number of items per page (max 100)
+    
+    Notes:
+    - Users can only view their own penalties
+    - Admins can view all penalties
+    """
     # Users can view their own penalties, admins can view all
     if current_user.id != user_id and current_user.role != UserRole.ADMIN:
         APIError.forbidden("Not authorized to view these penalties")
@@ -182,11 +282,47 @@ async def get_user_penalties(
         }
     }
 
-@router.get("/admin/penalties/stats", response_model=dict)
+@router.get(
+    "/admin/penalties/stats",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved penalty statistics",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "total_active_penalties": 10,
+                            "penalties_by_type": {
+                                "NO_SHOW": 5,
+                                "LATE_CHECK_IN": 3,
+                                "EARLY_CHECK_OUT": 2
+                            },
+                            "user_impacts": {
+                                "users_with_restrictions": 2,
+                                "users_suspended": 1
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"}
+    }
+)
 async def get_penalty_statistics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get overall penalty statistics (Admin only).
+    
+    Returns:
+    - Total number of active penalties
+    - Distribution of penalties by type
+    - Number of users with restrictions/suspensions
+    """
     check_admin_access(current_user)
 
     now = datetime.utcnow()

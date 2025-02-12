@@ -47,12 +47,64 @@ def update_user_average_rating(db: Session, user_id: int):
             db.commit()
 
 # Routes
-@router.post("/admin/ratings", response_model=dict)
+@router.post(
+    "/admin/ratings",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "Rating successfully created",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "rating_id": 1,
+                            "user_id": 2,
+                            "reservation_id": 3,
+                            "rating": 5,
+                            "comment": "Excellent space usage",
+                            "created_at": "2024-02-12T13:00:00"
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid rating request",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {
+                            "code": "BAD_REQUEST",
+                            "message": "Can only rate completed reservations"
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"},
+        404: {"description": "Reservation not found"}
+    }
+)
 async def create_rating(
     rating: RatingCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Create a rating for a user's reservation (Admin only).
+    
+    - **reservation_id**: ID of the completed reservation
+    - **user_id**: ID of the user to rate
+    - **rating**: Rating value (1-5)
+    - **comment**: Optional comment about the rating
+    
+    Notes:
+    - Can only rate completed reservations
+    - Each reservation can only be rated once
+    """
     # Verify admin access
     check_admin_access(current_user)
 
@@ -109,7 +161,43 @@ async def create_rating(
         }
     }
 
-@router.get("/users/{user_id}/ratings", response_model=dict)
+@router.get(
+    "/users/{user_id}/ratings",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved user ratings",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "ratings": [
+                                {
+                                    "id": 1,
+                                    "reservation_id": 3,
+                                    "rating": 5,
+                                    "comment": "Excellent space usage",
+                                    "created_at": "2024-02-12T13:00:00",
+                                    "rated_by": {
+                                        "id": 1,
+                                        "name": "Admin User"
+                                    }
+                                }
+                            ],
+                            "total": 1,
+                            "page": 1,
+                            "per_page": 10,
+                            "average_rating": 4.5
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized to view these ratings"},
+        404: {"description": "User not found"}
+    }
+)
 async def get_user_ratings(
     user_id: int,
     page: int = Query(1, gt=0),
@@ -117,6 +205,17 @@ async def get_user_ratings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get ratings for a specific user.
+    
+    - **user_id**: ID of the user to get ratings for
+    - **page**: Page number for pagination (starts at 1)
+    - **per_page**: Number of items per page (max 100)
+    
+    Notes:
+    - Users can only view their own ratings
+    - Admins can view all ratings
+    """
     # Users can view their own ratings, admins can view all
     if current_user.id != user_id and current_user.role != UserRole.ADMIN:
         APIError.forbidden("Not authorized to view these ratings")
@@ -153,11 +252,46 @@ async def get_user_ratings(
         }
     }
 
-@router.get("/admin/ratings/stats", response_model=dict)
+@router.get(
+    "/admin/ratings/stats",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved rating statistics",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "total_ratings": 100,
+                            "average_rating": 4.5,
+                            "distribution": {
+                                "1": 2,
+                                "2": 3,
+                                "3": 10,
+                                "4": 35,
+                                "5": 50
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"}
+    }
+)
 async def get_rating_statistics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get overall rating statistics (Admin only).
+    
+    Returns:
+    - Total number of ratings
+    - Average rating
+    - Distribution of ratings (count for each rating value 1-5)
+    """
     check_admin_access(current_user)
 
     # Get overall statistics

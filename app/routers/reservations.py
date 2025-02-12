@@ -91,12 +91,68 @@ def create_notification(
     db.commit()
 
 # Routes
-@router.post("/", response_model=dict)
+@router.post(
+    "/",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "Reservation successfully created",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "reservation_id": 1,
+                            "space": {
+                                "id": 1,
+                                "name": "Study Room A"
+                            },
+                            "start_time": "2024-02-12T14:00:00",
+                            "end_time": "2024-02-12T16:00:00",
+                            "status": "CONFIRMED",
+                            "qr_code": "data:image/png;base64,...",
+                            "check_in_required_by": "2024-02-12T14:15:00"
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Bad request",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {
+                            "code": "BAD_REQUEST",
+                            "message": "Space is already reserved for this time"
+                        }
+                    }
+                }
+            }
+        },
+        404: {"description": "Space not found"}
+    }
+)
 async def create_reservation(
     reservation: ReservationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Create a new reservation.
+    
+    - **space_id**: ID of the space to reserve
+    - **start_time**: Start time of the reservation (UTC)
+    - **end_time**: End time of the reservation (UTC)
+    
+    Notes:
+    - Maximum 2 active reservations per user
+    - Start time must be in the future
+    - End time must be after start time
+    - Space must be available during the requested time
+    """
     # Check if user has too many active reservations
     active_reservations = db.query(Reservation).filter(
         Reservation.user_id == current_user.id,
@@ -166,12 +222,51 @@ async def create_reservation(
         }
     }
 
-@router.post("/{reservation_id}/check-in")
+@router.post(
+    "/{reservation_id}/check-in",
+    responses={
+        200: {
+            "description": "Successfully checked in",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Successfully checked in"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Check-in not possible",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {
+                            "code": "BAD_REQUEST",
+                            "message": "Check-in deadline passed"
+                        }
+                    }
+                }
+            }
+        },
+        404: {"description": "Reservation not found"}
+    }
+)
 async def check_in(
     reservation_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Check in to a reservation.
+    
+    - **reservation_id**: ID of the reservation to check in
+    
+    Notes:
+    - Must check in within 15 minutes of start time
+    - Reservation must be in CONFIRMED status
+    """
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
         APIError.not_found("Reservation not found")
@@ -203,12 +298,37 @@ async def check_in(
         "message": "Successfully checked in"
     }
 
-@router.post("/{reservation_id}/check-out")
+@router.post(
+    "/{reservation_id}/check-out",
+    responses={
+        200: {
+            "description": "Successfully checked out",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Successfully checked out"
+                    }
+                }
+            }
+        },
+        400: {"description": "Reservation is not checked in"},
+        404: {"description": "Reservation not found"}
+    }
+)
 async def check_out(
     reservation_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Check out from a reservation.
+    
+    - **reservation_id**: ID of the reservation to check out
+    
+    Notes:
+    - Reservation must be in CHECKED_IN status
+    """
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
         APIError.not_found("Reservation not found")
@@ -229,12 +349,37 @@ async def check_out(
         "message": "Successfully checked out"
     }
 
-@router.delete("/{reservation_id}")
+@router.delete(
+    "/{reservation_id}",
+    responses={
+        200: {
+            "description": "Reservation successfully cancelled",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Reservation cancelled successfully"
+                    }
+                }
+            }
+        },
+        400: {"description": "Cancellation deadline passed"},
+        404: {"description": "Reservation not found"}
+    }
+)
 async def cancel_reservation(
     reservation_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Cancel a reservation.
+    
+    - **reservation_id**: ID of the reservation to cancel
+    
+    Notes:
+    - Must cancel at least 24 hours before start time
+    """
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
         APIError.not_found("Reservation not found")
@@ -264,7 +409,42 @@ async def cancel_reservation(
         "message": "Reservation cancelled successfully"
     }
 
-@router.get("/", response_model=dict)
+@router.get(
+    "/",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved reservations",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "reservations": [
+                                {
+                                    "id": 1,
+                                    "space": {
+                                        "id": 1,
+                                        "name": "Study Room A"
+                                    },
+                                    "start_time": "2024-02-12T14:00:00",
+                                    "end_time": "2024-02-12T16:00:00",
+                                    "status": "CONFIRMED",
+                                    "check_in_time": None,
+                                    "check_out_time": None,
+                                    "qr_code": "data:image/png;base64,..."
+                                }
+                            ],
+                            "total": 1,
+                            "page": 1,
+                            "per_page": 10
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def list_reservations(
     status: Optional[ReservationStatus] = None,
     page: int = Query(1, gt=0),
@@ -272,6 +452,13 @@ async def list_reservations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    List user's reservations.
+    
+    - **status**: Filter by reservation status
+    - **page**: Page number for pagination (starts at 1)
+    - **per_page**: Number of items per page (max 100)
+    """
     query = db.query(Reservation).filter(Reservation.user_id == current_user.id)
     
     if status:

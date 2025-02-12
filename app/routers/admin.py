@@ -26,11 +26,81 @@ def get_date_range(days: int = 7):
     return start_date, end_date
 
 # Routes
-@router.get("/dashboard", response_model=dict)
+@router.get(
+    "/dashboard",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved dashboard data",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "overview": {
+                                "total_spaces": 20,
+                                "occupied_spaces": 5,
+                                "total_reservations_today": 15,
+                                "active_users": 50
+                            },
+                            "penalty_statistics": {
+                                "total_active_penalties": 10,
+                                "penalties_by_type": {
+                                    "NO_SHOW": 5,
+                                    "LATE_CHECK_IN": 3,
+                                    "EARLY_CHECK_OUT": 2
+                                },
+                                "users_with_restrictions": 2
+                            },
+                            "rating_statistics": {
+                                "average_rating": 4.5,
+                                "total_ratings": 100,
+                                "rating_distribution": {
+                                    "1": 2,
+                                    "2": 3,
+                                    "3": 10,
+                                    "4": 35,
+                                    "5": 50
+                                }
+                            },
+                            "usage_statistics": {
+                                "daily": [
+                                    {
+                                        "date": "2024-02-12",
+                                        "reservations": 25,
+                                        "occupancy_rate": 62.5
+                                    }
+                                ],
+                                "popular_spaces": [
+                                    {
+                                        "space_id": 1,
+                                        "name": "Study Room A",
+                                        "usage_count": 50,
+                                        "average_rating": 4.8
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"}
+    }
+)
 async def get_dashboard_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get comprehensive dashboard data for administrators.
+    
+    Returns:
+    - Overview statistics (spaces, reservations, users)
+    - Penalty statistics
+    - Rating statistics
+    - Usage statistics (daily trends and popular spaces)
+    """
     check_admin_access(current_user)
     
     now = datetime.utcnow()
@@ -148,7 +218,41 @@ async def get_dashboard_data(
         }
     }
 
-@router.get("/users", response_model=dict)
+@router.get(
+    "/users",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved user list",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "users": [
+                                {
+                                    "id": 1,
+                                    "email": "user@example.com",
+                                    "name": "John Doe",
+                                    "role": "USER",
+                                    "penalty_points": 0,
+                                    "average_rating": 4.5,
+                                    "created_at": "2024-02-12T13:00:00",
+                                    "last_login": "2024-02-12T13:00:00",
+                                    "is_active": True
+                                }
+                            ],
+                            "total": 1,
+                            "page": 1,
+                            "per_page": 10
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"}
+    }
+)
 async def list_users(
     search: Optional[str] = None,
     role: Optional[UserRole] = None,
@@ -158,6 +262,15 @@ async def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    List and filter users (Admin only).
+    
+    - **search**: Search by name or email
+    - **role**: Filter by user role
+    - **has_penalties**: Filter users with/without penalties
+    - **page**: Page number for pagination (starts at 1)
+    - **per_page**: Number of items per page (max 100)
+    """
     check_admin_access(current_user)
 
     query = db.query(User)
@@ -201,13 +314,58 @@ async def list_users(
         }
     }
 
-@router.get("/reports/utilization", response_model=dict)
+@router.get(
+    "/reports/utilization",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved utilization report",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "period": {
+                                "start": "2024-02-05T00:00:00",
+                                "end": "2024-02-12T00:00:00"
+                            },
+                            "space_utilization": [
+                                {
+                                    "space_id": 1,
+                                    "name": "Study Room A",
+                                    "total_reservations": 50,
+                                    "reserved_hours": 100,
+                                    "utilization_rate": 75.5
+                                }
+                            ],
+                            "summary": {
+                                "total_spaces": 20,
+                                "average_utilization": 65.5
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        403: {"description": "Not authorized (Admin only)"}
+    }
+)
 async def get_utilization_report(
     start_date: datetime,
     end_date: datetime,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Get space utilization report for a specific period (Admin only).
+    
+    - **start_date**: Start date for the report period (UTC)
+    - **end_date**: End date for the report period (UTC)
+    
+    Returns:
+    - Utilization statistics for each space
+    - Overall utilization summary
+    """
     check_admin_access(current_user)
 
     # Space utilization

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -57,8 +57,50 @@ async def get_current_user(
     return user
 
 # Routes
-@router.post("/register", response_model=UserResponse)
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "User successfully registered",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 1,
+                        "email": "user@example.com",
+                        "name": "John Doe",
+                        "role": "USER",
+                        "penalty_points": 0,
+                        "average_rating": 0
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Email already registered",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {
+                            "code": "BAD_REQUEST",
+                            "message": "Email already registered"
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Register a new user.
+    
+    - **email**: Valid email address
+    - **name**: User's full name
+    - **password**: Strong password (min 8 characters)
+    """
     # Check if user exists
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
@@ -76,11 +118,58 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     return db_user
 
-@router.post("/login", response_model=dict)
+@router.post(
+    "/login",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully logged in",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "access_token": "eyJhbGciOiJIUzI1NiIs...",
+                            "token_type": "bearer",
+                            "user": {
+                                "id": 1,
+                                "email": "user@example.com",
+                                "name": "John Doe",
+                                "role": "USER",
+                                "penalty_points": 0,
+                                "average_rating": 4.5
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Invalid credentials",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {
+                            "code": "UNAUTHORIZED",
+                            "message": "Incorrect email or password"
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def login(
     user_credentials: UserLogin,
     db: Session = Depends(get_db)
 ):
+    """
+    Login with email and password to receive an access token.
+    
+    - **email**: Registered email address
+    - **password**: User's password
+    """
     # Authenticate user
     user = db.query(User).filter(User.email == user_credentials.email).first()
     if not user or not verify_password(user_credentials.password, user.hashed_password):
@@ -109,11 +198,62 @@ async def login(
         }
     }
 
-@router.get("/profile", response_model=dict)
+@router.get(
+    "/profile",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved user profile",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "id": 1,
+                            "email": "user@example.com",
+                            "name": "John Doe",
+                            "role": "USER",
+                            "created_at": "2024-02-12T13:09:50",
+                            "stats": {
+                                "total_reservations": 10,
+                                "penalty_points": 0,
+                                "average_rating": 4.5,
+                                "reservation_status": {
+                                    "completed": 8,
+                                    "cancelled": 1,
+                                    "no_show": 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "error": {
+                            "code": "UNAUTHORIZED",
+                            "message": "Not authenticated"
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def get_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Get the profile and statistics of the currently authenticated user.
+    
+    Requires authentication via Bearer token.
+    """
     # Get user statistics
     total_reservations = len(current_user.reservations)
     completed_reservations = sum(1 for r in current_user.reservations if r.status == "completed")

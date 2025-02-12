@@ -2,36 +2,19 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel, conint
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (Notification, NotificationType, Rating, Reservation,
                       ReservationStatus, User, UserRole)
+from ..models.notifications import NotificationCreate
+from ..models.ratings import (RatingCreate, RatingResponse, RatingUpdate,
+                              RatingWithUserInfo)
 from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
 
-# Pydantic models
-class RatingCreate(BaseModel):
-    reservation_id: int
-    user_id: int
-    rating: conint(ge=1, le=5)  # Rating must be between 1 and 5
-    comment: Optional[str] = None
-
-class RatingResponse(BaseModel):
-    id: int
-    user_id: int
-    reservation_id: int
-    rating: int
-    comment: Optional[str]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-# Helper functions
 def check_admin_access(current_user: User):
     if current_user.role != UserRole.ADMIN:
         APIError.forbidden("Admin access required")
@@ -46,7 +29,6 @@ def update_user_average_rating(db: Session, user_id: int):
             user.average_rating = total_rating / len(ratings)
             db.commit()
 
-# Routes
 @router.post(
     "/admin/ratings",
     response_model=dict,
@@ -59,31 +41,19 @@ def update_user_average_rating(db: Session, user_id: int):
                     "example": {
                         "success": True,
                         "data": {
-                            "rating_id": 1,
-                            "user_id": 2,
-                            "reservation_id": 3,
-                            "rating": 5,
-                            "comment": "Excellent space usage",
-                            "created_at": "2024-02-12T13:00:00"
+                            "rating": {
+                                "id": 1,
+                                "user_id": 2,
+                                "reservation_id": 3,
+                                "rating": 5,
+                                "comment": "Excellent space usage"
+                            }
                         }
                     }
                 }
             }
         },
-        400: {
-            "description": "Invalid rating request",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "success": False,
-                        "error": {
-                            "code": "BAD_REQUEST",
-                            "message": "Can only rate completed reservations"
-                        }
-                    }
-                }
-            }
-        },
+        400: {"description": "Invalid rating request"},
         403: {"description": "Not authorized (Admin only)"},
         404: {"description": "Reservation not found"}
     }
@@ -92,7 +62,7 @@ async def create_rating(
     rating: RatingCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Create a rating for a user's reservation (Admin only).
     
@@ -100,12 +70,7 @@ async def create_rating(
     - **user_id**: ID of the user to rate
     - **rating**: Rating value (1-5)
     - **comment**: Optional comment about the rating
-    
-    Notes:
-    - Can only rate completed reservations
-    - Each reservation can only be rated once
     """
-    # Verify admin access
     check_admin_access(current_user)
 
     # Verify reservation exists and is completed
@@ -121,11 +86,8 @@ async def create_rating(
 
     # Create rating
     db_rating = Rating(
-        user_id=rating.user_id,
-        reservation_id=rating.reservation_id,
-        rated_by=current_user.id,
-        rating=rating.rating,
-        comment=rating.comment
+        **rating.dict(),
+        rated_by=current_user.id
     )
     db.add(db_rating)
     
@@ -139,25 +101,21 @@ async def create_rating(
     update_user_average_rating(db, rating.user_id)
 
     # Create notification
-    notification = Notification(
+    notification = NotificationCreate(
         user_id=rating.user_id,
         type=NotificationType.RATING_RECEIVED,
         message=f"You received a {rating.rating}/5 rating for your reservation",
         reference_id=db_rating.id,
         reference_type="rating"
     )
-    db.add(notification)
+    db_notification = Notification(**notification.dict())
+    db.add(db_notification)
     db.commit()
 
     return {
         "success": True,
         "data": {
-            "rating_id": db_rating.id,
-            "user_id": db_rating.user_id,
-            "reservation_id": db_rating.reservation_id,
-            "rating": db_rating.rating,
-            "comment": db_rating.comment,
-            "created_at": db_rating.created_at
+            "rating": RatingResponse.from_orm(db_rating)
         }
     }
 
@@ -186,8 +144,6 @@ async def create_rating(
                                 }
                             ],
                             "total": 1,
-                            "page": 1,
-                            "per_page": 10,
                             "average_rating": 4.5
                         }
                     }
@@ -204,23 +160,21 @@ async def get_user_ratings(
     per_page: int = Query(10, gt=0, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Get ratings for a specific user.
     
     - **user_id**: ID of the user to get ratings for
     - **page**: Page number for pagination (starts at 1)
     - **per_page**: Number of items per page (max 100)
-    
-    Notes:
-    - Users can only view their own ratings
-    - Admins can view all ratings
     """
-    # Users can view their own ratings, admins can view all
     if current_user.id != user_id and current_user.role != UserRole.ADMIN:
         APIError.forbidden("Not authorized to view these ratings")
 
-    # Get user's ratings
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        APIError.not_found("User not found")
+
     query = db.query(Rating).filter(Rating.user_id == user_id)
     total = query.count()
     ratings = query.order_by(Rating.created_at.desc())\
@@ -231,96 +185,71 @@ async def get_user_ratings(
     return {
         "success": True,
         "data": {
-            "ratings": [
-                {
-                    "id": r.id,
-                    "reservation_id": r.reservation_id,
-                    "rating": r.rating,
-                    "comment": r.comment,
-                    "created_at": r.created_at,
-                    "rated_by": {
-                        "id": r.rater.id,
-                        "name": r.rater.name
-                    } if r.rater else None
-                }
-                for r in ratings
-            ],
+            "ratings": [RatingWithUserInfo.from_orm(r) for r in ratings],
             "total": total,
             "page": page,
             "per_page": per_page,
-            "average_rating": current_user.average_rating
+            "average_rating": user.average_rating
         }
     }
 
-@router.get(
-    "/admin/ratings/stats",
+@router.put(
+    "/admin/ratings/{rating_id}",
     response_model=dict,
     responses={
         200: {
-            "description": "Successfully retrieved rating statistics",
+            "description": "Rating successfully updated",
             "content": {
                 "application/json": {
                     "example": {
                         "success": True,
                         "data": {
-                            "total_ratings": 100,
-                            "average_rating": 4.5,
-                            "distribution": {
-                                "1": 2,
-                                "2": 3,
-                                "3": 10,
-                                "4": 35,
-                                "5": 50
+                            "rating": {
+                                "id": 1,
+                                "rating": 4,
+                                "comment": "Updated comment"
                             }
                         }
                     }
                 }
             }
         },
-        403: {"description": "Not authorized (Admin only)"}
+        403: {"description": "Not authorized (Admin only)"},
+        404: {"description": "Rating not found"}
     }
 )
-async def get_rating_statistics(
+async def update_rating(
+    rating_id: int,
+    rating_update: RatingUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
-    Get overall rating statistics (Admin only).
+    Update an existing rating (Admin only).
     
-    Returns:
-    - Total number of ratings
-    - Average rating
-    - Distribution of ratings (count for each rating value 1-5)
+    - **rating_id**: ID of the rating to update
+    - **rating**: Updated rating value (1-5)
+    - **comment**: Updated comment
     """
     check_admin_access(current_user)
 
-    # Get overall statistics
-    all_ratings = db.query(Rating).all()
-    total_ratings = len(all_ratings)
-    
-    if total_ratings == 0:
-        return {
-            "success": True,
-            "data": {
-                "total_ratings": 0,
-                "average_rating": 0,
-                "distribution": {str(i): 0 for i in range(1, 6)}
-            }
-        }
+    rating = db.query(Rating).filter(Rating.id == rating_id).first()
+    if not rating:
+        APIError.not_found("Rating not found")
 
-    # Calculate distribution
-    distribution = {str(i): 0 for i in range(1, 6)}
-    total_score = 0
+    for field, value in rating_update.dict(exclude_unset=True).items():
+        setattr(rating, field, value)
 
-    for r in all_ratings:
-        distribution[str(r.rating)] += 1
-        total_score += r.rating
+    db.commit()
+    db.refresh(rating)
+
+    # Update user's average rating if rating value changed
+    if rating_update.rating is not None:
+        update_user_average_rating(db, rating.user_id)
 
     return {
         "success": True,
         "data": {
-            "total_ratings": total_ratings,
-            "average_rating": round(total_score / total_ratings, 2),
-            "distribution": distribution
+            "rating": RatingResponse.from_orm(rating)
         }
     }

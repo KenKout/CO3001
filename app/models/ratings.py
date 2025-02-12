@@ -1,3 +1,7 @@
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, conint
 from sqlalchemy import (CheckConstraint, Column, DateTime, ForeignKey, Integer,
                         String)
 from sqlalchemy.orm import relationship
@@ -34,3 +38,32 @@ class Rating(Base):
     def is_admin_rating(self) -> bool:
         """Check if the rating was given by an admin"""
         return self.rated_by is not None
+
+# Pydantic models for request/response validation
+class RatingBase(BaseModel):
+    rating: conint(ge=1, le=5)  # Rating must be between 1 and 5
+    comment: Optional[str] = None
+
+class RatingCreate(RatingBase):
+    user_id: int
+    reservation_id: int
+
+class RatingUpdate(RatingBase):
+    pass
+
+class RatingResponse(RatingBase):
+    id: int
+    user_id: int
+    reservation_id: int
+    rated_by: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class RatingWithUserInfo(RatingResponse):
+    user_name: str
+    rater_name: Optional[str]
+
+    class Config:
+        from_attributes = True

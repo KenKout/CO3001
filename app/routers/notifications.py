@@ -2,32 +2,18 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Notification, NotificationType
+from ..models.notifications import (NotificationCreate, NotificationResponse,
+                                    NotificationUpdate)
 from ..models.users import User
 from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
 
-# Pydantic models
-class NotificationResponse(BaseModel):
-    id: int
-    type: NotificationType
-    message: str
-    reference_id: Optional[int]
-    reference_type: Optional[str]
-    created_at: datetime
-    read_at: Optional[datetime]
-    is_read: bool
-
-    class Config:
-        from_attributes = True
-
-# Routes
 @router.get(
     "/",
     response_model=dict,
@@ -59,20 +45,7 @@ class NotificationResponse(BaseModel):
                 }
             }
         },
-        401: {
-            "description": "Not authenticated",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "success": False,
-                        "error": {
-                            "code": "UNAUTHORIZED",
-                            "message": "Not authenticated"
-                        }
-                    }
-                }
-            }
-        }
+        401: {"description": "Not authenticated"}
     }
 )
 async def list_notifications(
@@ -81,7 +54,7 @@ async def list_notifications(
     per_page: int = Query(10, gt=0, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     List notifications for the authenticated user.
     
@@ -108,18 +81,7 @@ async def list_notifications(
     return {
         "success": True,
         "data": {
-            "notifications": [
-                {
-                    "id": n.id,
-                    "type": n.type,
-                    "message": n.message,
-                    "created_at": n.created_at,
-                    "read": n.is_read,
-                    "reference_id": n.reference_id,
-                    "reference_type": n.reference_type
-                }
-                for n in notifications
-            ],
+            "notifications": [NotificationResponse.from_orm(n) for n in notifications],
             "unread_count": unread_count,
             "total": total,
             "page": page,
@@ -141,41 +103,14 @@ async def list_notifications(
                 }
             }
         },
-        404: {
-            "description": "Notification not found",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "success": False,
-                        "error": {
-                            "code": "NOT_FOUND",
-                            "message": "Notification not found"
-                        }
-                    }
-                }
-            }
-        },
-        401: {
-            "description": "Not authenticated",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "success": False,
-                        "error": {
-                            "code": "UNAUTHORIZED",
-                            "message": "Not authenticated"
-                        }
-                    }
-                }
-            }
-        }
+        404: {"description": "Notification not found"}
     }
 )
 async def mark_as_read(
     notification_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Mark a specific notification as read.
     
@@ -189,7 +124,13 @@ async def mark_as_read(
     if not notification:
         APIError.not_found("Notification not found")
 
-    notification.mark_as_read()
+    update_data = NotificationUpdate(is_read=True)
+    for key, value in update_data.dict(exclude_unset=True).items():
+        setattr(notification, key, value)
+    
+    if update_data.is_read:
+        notification.read_at = datetime.utcnow()
+    
     db.commit()
 
     return {
@@ -210,16 +151,51 @@ async def mark_as_read(
                     }
                 }
             }
-        },
-        401: {
-            "description": "Not authenticated",
+        }
+    }
+)
+async def mark_all_as_read(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """
+    Mark all unread notifications as read for the authenticated user.
+    """
+    update_data = NotificationUpdate(is_read=True)
+    now = datetime.utcnow()
+    
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False
+    ).update({
+        "is_read": update_data.is_read,
+        "read_at": now
+    })
+    
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "All notifications marked as read"
+    }
+
+@router.post(
+    "/",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: {
+            "description": "Notification created successfully",
             "content": {
                 "application/json": {
                     "example": {
-                        "success": False,
-                        "error": {
-                            "code": "UNAUTHORIZED",
-                            "message": "Not authenticated"
+                        "success": True,
+                        "data": {
+                            "id": 1,
+                            "type": "SYSTEM_NOTIFICATION",
+                            "message": "System maintenance scheduled",
+                            "user_id": 1,
+                            "created_at": "2024-02-12T13:00:00"
                         }
                     }
                 }
@@ -227,23 +203,23 @@ async def mark_as_read(
         }
     }
 )
-async def mark_all_as_read(
+async def create_notification(
+    notification: NotificationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
-    Mark all unread notifications as read for the authenticated user.
+    Create a new notification.
+    
+    - Requires appropriate permissions
+    - Used internally by the system
     """
-    db.query(Notification).filter(
-        Notification.user_id == current_user.id,
-        Notification.is_read == False
-    ).update({
-        "is_read": True,
-        "read_at": datetime.utcnow()
-    })
+    db_notification = Notification(**notification.dict())
+    db.add(db_notification)
     db.commit()
-
+    db.refresh(db_notification)
+    
     return {
         "success": True,
-        "message": "All notifications marked as read"
+        "data": NotificationResponse.from_orm(db_notification)
     }

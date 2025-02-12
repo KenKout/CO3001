@@ -1,5 +1,8 @@
 import enum
+from datetime import datetime
+from typing import Optional
 
+from pydantic import BaseModel
 from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Integer,
                         String)
 from sqlalchemy.orm import relationship
@@ -46,3 +49,28 @@ class Notification(Base):
         """Return a shortened version of the message for previews"""
         max_length = 50
         return (self.message[:max_length] + '...') if len(self.message) > max_length else self.message
+
+# Pydantic models for request/response validation
+class NotificationBase(BaseModel):
+    type: NotificationType
+    message: str
+    reference_id: Optional[int] = None
+    reference_type: Optional[str] = None
+
+class NotificationCreate(NotificationBase):
+    user_id: int
+
+class NotificationUpdate(BaseModel):
+    is_read: Optional[bool] = None
+    is_email_sent: Optional[bool] = None
+
+class NotificationResponse(NotificationBase):
+    id: int
+    user_id: int
+    created_at: datetime
+    read_at: Optional[datetime]
+    is_read: bool
+    is_email_sent: bool
+
+    class Config:
+        from_attributes = True

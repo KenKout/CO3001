@@ -2,57 +2,24 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Reservation, Space, SpaceStatus, SpaceType
+from ..models.spaces import (SpaceAvailability, SpaceBase, SpaceCreate,
+                             SpaceResponse, SpaceUpdate, TimeSlot)
 from ..models.users import User, UserRole
 from ..utils.error_handler import APIError
 from .auth import get_current_user
 
 router = APIRouter()
 
-# Pydantic models
-class EquipmentList(BaseModel):
-    equipment: List[str]
-
-class SpaceBase(BaseModel):
-    name: str
-    capacity: int
-    type: SpaceType
-    location: str
-    description: Optional[str] = None
-    equipment: List[str] = []
-
-class SpaceCreate(SpaceBase):
-    pass
-
-class SpaceUpdate(SpaceBase):
-    status: Optional[SpaceStatus] = None
-    is_active: Optional[bool] = None
-
-class SpaceResponse(SpaceBase):
-    id: int
-    status: SpaceStatus
-    average_rating: float
-    total_ratings: int
-    is_active: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class SpaceAvailability(BaseModel):
-    next_available: Optional[datetime]
-    today_slots: List[dict]
-
-# Helper functions
 def check_admin_access(current_user: User):
     if current_user.role != UserRole.ADMIN:
         APIError.forbidden("Admin access required")
 
 def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
+    """Get space availability for today"""
     now = datetime.utcnow()
     today_start = datetime(now.year, now.month, now.day, 9, 0, 0)  # 9 AM
     today_end = datetime(now.year, now.month, now.day, 16, 0, 0)   # 4 PM
@@ -105,10 +72,10 @@ def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
                 is_available = False
                 break
         if is_available:
-            slots.append({
-                "start": current_time,
-                "end": slot_end
-            })
+            slots.append(TimeSlot(
+                start=current_time,
+                end=slot_end
+            ))
         current_time += timedelta(hours=1)
 
     return SpaceAvailability(
@@ -116,7 +83,6 @@ def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
         today_slots=slots
     )
 
-# Routes
 @router.get(
     "/",
     response_model=dict,
@@ -137,39 +103,15 @@ def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
                                     "status": "AVAILABLE",
                                     "equipment": ["whiteboard", "projector"],
                                     "location": "Building A, Floor 2",
-                                    "current_occupancy": 0,
-                                    "rating": {
-                                        "average": 4.5,
-                                        "total_ratings": 10
-                                    },
                                     "availability": {
                                         "next_available": "2024-02-12T14:00:00",
-                                        "today_slots": [
-                                            {
-                                                "start": "2024-02-12T14:00:00",
-                                                "end": "2024-02-12T16:00:00"
-                                            }
-                                        ]
+                                        "today_slots": []
                                     }
                                 }
                             ],
                             "total": 1,
                             "page": 1,
                             "per_page": 10
-                        }
-                    }
-                }
-            }
-        },
-        401: {
-            "description": "Not authenticated",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "success": False,
-                        "error": {
-                            "code": "UNAUTHORIZED",
-                            "message": "Not authenticated"
                         }
                     }
                 }
@@ -186,20 +128,19 @@ async def list_spaces(
     per_page: int = Query(10, gt=0, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     List all available spaces with optional filtering.
     
-    - **type**: Filter by space type (e.g., individual, group, meeting, quiet)
+    - **type**: Filter by space type
     - **capacity**: Filter by minimum capacity
     - **equipment**: Filter by specific equipment
     - **status**: Filter by space status
-    - **page**: Page number for pagination (starts at 1)
-    - **per_page**: Number of items per page (max 100)
+    - **page**: Page number for pagination
+    - **per_page**: Items per page
     """
     query = db.query(Space).filter(Space.is_active == True)
     
-    # Apply filters
     if type:
         query = query.filter(Space.type == type)
     if capacity:
@@ -209,30 +150,17 @@ async def list_spaces(
     if status:
         query = query.filter(Space.status == status)
 
-    # Pagination
     total = query.count()
     spaces = query.offset((page - 1) * per_page).limit(per_page).all()
 
-    # Get availability for each space
     space_data = []
     for space in spaces:
+        space_response = SpaceResponse.from_orm(space)
         availability = get_space_availability(space, db)
-        space_dict = {
-            "id": space.id,
-            "name": space.name,
-            "capacity": space.capacity,
-            "type": space.type,
-            "status": space.status,
-            "equipment": space.equipment_list,
-            "location": space.location,
-            "current_occupancy": len([r for r in space.reservations if r.status == "checked_in"]),
-            "rating": {
-                "average": space.average_rating,
-                "total_ratings": space.total_ratings
-            },
+        space_data.append({
+            **space_response.dict(),
             "availability": availability
-        }
-        space_data.append(space_dict)
+        })
 
     return {
         "success": True,
@@ -246,7 +174,7 @@ async def list_spaces(
 
 @router.post(
     "/",
-    response_model=SpaceResponse,
+    response_model=dict,
     status_code=status.HTTP_201_CREATED,
     responses={
         201: {
@@ -254,23 +182,20 @@ async def list_spaces(
             "content": {
                 "application/json": {
                     "example": {
-                        "id": 1,
-                        "name": "Study Room A",
-                        "capacity": 4,
-                        "type": "individual",
-                        "location": "Building A, Floor 2",
-                        "description": "Quiet study room with whiteboard",
-                        "equipment": ["whiteboard", "projector"],
-                        "status": "AVAILABLE",
-                        "average_rating": 0,
-                        "total_ratings": 0,
-                        "is_active": True,
-                        "created_at": "2024-02-12T13:00:00"
+                        "success": True,
+                        "data": {
+                            "space": {
+                                "id": 1,
+                                "name": "Study Room A",
+                                "capacity": 4,
+                                "type": "individual",
+                                "location": "Building A"
+                            }
+                        }
                     }
                 }
             }
         },
-        401: {"description": "Not authenticated"},
         403: {"description": "Not authorized (Admin only)"}
     }
 )
@@ -278,14 +203,14 @@ async def create_space(
     space: SpaceCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Create a new space (Admin only).
     
     - **name**: Name of the space
     - **capacity**: Maximum capacity
-    - **type**: Type of space (e.g., individual, group, meeting, quiet)
-    - **location**: Physical location of the space
+    - **type**: Type of space
+    - **location**: Physical location
     - **description**: Optional description
     - **equipment**: List of available equipment
     """
@@ -295,7 +220,13 @@ async def create_space(
     db.add(db_space)
     db.commit()
     db.refresh(db_space)
-    return db_space
+    
+    return {
+        "success": True,
+        "data": {
+            "space": SpaceResponse.from_orm(db_space)
+        }
+    }
 
 @router.get(
     "/{space_id}",
@@ -308,23 +239,15 @@ async def create_space(
                     "example": {
                         "success": True,
                         "data": {
-                            "id": 1,
-                            "name": "Study Room A",
-                            "capacity": 4,
-                            "type": "individual",
-                            "status": "AVAILABLE",
-                            "equipment": ["whiteboard", "projector"],
-                            "location": "Building A, Floor 2",
-                            "description": "Quiet study room with whiteboard",
-                            "rating": {
-                                "average": 4.5,
-                                "total_ratings": 10
-                            },
-                            "availability": {
-                                "next_available": "2024-02-12T14:00:00",
-                                "today_slots": []
-                            },
-                            "current_occupancy": 0
+                            "space": {
+                                "id": 1,
+                                "name": "Study Room A",
+                                "capacity": 4,
+                                "type": "individual",
+                                "status": "AVAILABLE",
+                                "equipment": ["whiteboard", "projector"],
+                                "location": "Building A"
+                            }
                         }
                     }
                 }
@@ -337,7 +260,7 @@ async def get_space(
     space_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Get detailed information about a specific space.
     
@@ -347,55 +270,44 @@ async def get_space(
     if not space:
         APIError.not_found("Space not found")
 
+    space_response = SpaceResponse.from_orm(space)
     availability = get_space_availability(space, db)
     
     return {
         "success": True,
         "data": {
-            "id": space.id,
-            "name": space.name,
-            "capacity": space.capacity,
-            "type": space.type,
-            "status": space.status,
-            "equipment": space.equipment_list,
-            "location": space.location,
-            "description": space.description,
-            "rating": {
-                "average": space.average_rating,
-                "total_ratings": space.total_ratings
-            },
-            "availability": availability,
-            "current_occupancy": len([r for r in space.reservations if r.status == "checked_in"])
+            "space": {
+                **space_response.dict(),
+                "availability": availability
+            }
         }
     }
 
 @router.put(
     "/{space_id}",
-    response_model=SpaceResponse,
+    response_model=dict,
     responses={
         200: {
             "description": "Space successfully updated",
             "content": {
                 "application/json": {
                     "example": {
-                        "id": 1,
-                        "name": "Study Room A (Updated)",
-                        "capacity": 6,
-                        "type": "individual",
-                        "location": "Building A, Floor 2",
-                        "description": "Updated description",
-                        "equipment": ["whiteboard", "projector", "computer"],
-                        "status": "AVAILABLE",
-                        "average_rating": 4.5,
-                        "total_ratings": 10,
-                        "is_active": True,
-                        "created_at": "2024-02-12T13:00:00"
+                        "success": True,
+                        "data": {
+                            "space": {
+                                "id": 1,
+                                "name": "Study Room A (Updated)",
+                                "capacity": 6,
+                                "type": "individual",
+                                "location": "Building A"
+                            }
+                        }
                     }
                 }
             }
         },
-        404: {"description": "Space not found"},
-        403: {"description": "Not authorized (Admin only)"}
+        403: {"description": "Not authorized (Admin only)"},
+        404: {"description": "Space not found"}
     }
 )
 async def update_space(
@@ -403,7 +315,7 @@ async def update_space(
     space_update: SpaceUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Update an existing space (Admin only).
     
@@ -412,19 +324,26 @@ async def update_space(
     """
     check_admin_access(current_user)
     
-    db_space = db.query(Space).filter(Space.id == space_id).first()
-    if not db_space:
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
         APIError.not_found("Space not found")
 
     for field, value in space_update.dict(exclude_unset=True).items():
-        setattr(db_space, field, value)
+        setattr(space, field, value)
 
     db.commit()
-    db.refresh(db_space)
-    return db_space
+    db.refresh(space)
+    
+    return {
+        "success": True,
+        "data": {
+            "space": SpaceResponse.from_orm(space)
+        }
+    }
 
 @router.delete(
     "/{space_id}",
+    response_model=dict,
     responses={
         200: {
             "description": "Space successfully deleted",
@@ -437,15 +356,15 @@ async def update_space(
                 }
             }
         },
-        404: {"description": "Space not found"},
-        403: {"description": "Not authorized (Admin only)"}
+        403: {"description": "Not authorized (Admin only)"},
+        404: {"description": "Space not found"}
     }
 )
 async def delete_space(
     space_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
-):
+) -> dict:
     """
     Soft delete a space (Admin only).
     
@@ -453,12 +372,15 @@ async def delete_space(
     """
     check_admin_access(current_user)
     
-    db_space = db.query(Space).filter(Space.id == space_id).first()
-    if not db_space:
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
         APIError.not_found("Space not found")
 
     # Soft delete
-    db_space.is_active = False
+    space.is_active = False
     db.commit()
 
-    return {"success": True, "message": "Space deleted successfully"}
+    return {
+        "success": True,
+        "message": "Space deleted successfully"
+    }

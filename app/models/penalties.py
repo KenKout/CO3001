@@ -1,6 +1,8 @@
 import enum
 from datetime import datetime, timedelta
+from typing import Optional
 
+from pydantic import BaseModel
 from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Integer,
                         String)
 from sqlalchemy.orm import relationship
@@ -56,3 +58,30 @@ class Penalty(Base):
             PenaltyType.UNAUTHORIZED: 2
         }
         return points_map.get(penalty_type, 1)
+
+# Pydantic models for request/response validation
+class PenaltyBase(BaseModel):
+    type: PenaltyType
+    description: Optional[str] = None
+    reservation_id: Optional[int] = None
+
+class PenaltyCreate(PenaltyBase):
+    user_id: int
+
+class PenaltyUpdate(BaseModel):
+    is_active: Optional[bool] = None
+    description: Optional[str] = None
+
+class PenaltyResponse(BaseModel):
+    id: int
+    user_id: int
+    type: PenaltyType
+    points: int
+    description: Optional[str]
+    created_at: datetime
+    expires_at: datetime
+    is_active: bool
+    reservation_id: Optional[int]
+
+    class Config:
+        from_attributes = True

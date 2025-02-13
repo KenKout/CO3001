@@ -56,7 +56,7 @@ def check_reservation_conflicts(
     return query.count() > 0
 
 @router.post(
-    "/",
+    "",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
     responses={
@@ -342,7 +342,7 @@ async def cancel_reservation(
     }
 
 @router.get(
-    "/",
+    "",
     response_model=dict,
     responses={
         200: {

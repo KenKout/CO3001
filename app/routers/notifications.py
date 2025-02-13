@@ -15,7 +15,7 @@ from .auth import get_current_user
 router = APIRouter()
 
 @router.get(
-    "/",
+    "",
     response_model=dict,
     responses={
         200: {
@@ -180,7 +180,7 @@ async def mark_all_as_read(
     }
 
 @router.post(
-    "/",
+    "",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
     responses={

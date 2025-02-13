@@ -84,7 +84,7 @@ def get_space_availability(space: Space, db: Session) -> SpaceAvailability:
     )
 
 @router.get(
-    "/",
+    "",
     response_model=dict,
     responses={
         200: {
@@ -173,7 +173,7 @@ async def list_spaces(
     }
 
 @router.post(
-    "/",
+    "",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
     responses={

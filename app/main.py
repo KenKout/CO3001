@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=APP_NAME,
     version=API_VERSION,
-    description="Study Space Management System API"
+    description="Study Space Management System API",
+    redirect_slashes=False  # Disable automatic slash redirection
 )
 
 # Configure CORS

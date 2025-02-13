@@ -96,9 +96,13 @@ class UserInfo(BaseModel):
     class Config:
         from_attributes = True
 
-class ReservationResponse(ReservationBase):
+class ReservationResponse(BaseModel):
     id: int
     user_id: int
+    space_id: int
+    start_time: datetime
+    end_time: datetime
+    notes: Optional[str] = None
     status: ReservationStatus
     check_in_time: Optional[datetime]
     check_out_time: Optional[datetime]
@@ -109,6 +113,12 @@ class ReservationResponse(ReservationBase):
 
     class Config:
         from_attributes = True
+
+    @validator('end_time')
+    def end_time_must_be_after_start_time(cls, v, values):
+        if 'start_time' in values and v <= values['start_time']:
+            raise ValueError('end_time must be after start_time')
+        return v
 
 class ReservationDetailResponse(ReservationResponse):
     user: UserInfo

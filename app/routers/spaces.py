@@ -341,6 +341,109 @@ async def update_space(
         }
     }
 
+@router.get(
+    "/{space_id}/availability",
+    response_model=dict,
+    responses={
+        200: {
+            "description": "Successfully retrieved space availability",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "availabilities": [
+                                {
+                                    "date": "2024-02-13",
+                                    "slots": [
+                                        {
+                                            "start": "2024-02-13T09:00:00",
+                                            "end": "2024-02-13T10:00:00"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        404: {"description": "Space not found"}
+    }
+)
+async def get_space_availability_week(
+    space_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """
+    Get space availability for the next 7 days.
+    
+    - **space_id**: ID of the space to get availability for
+    """
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        APIError.not_found("Space not found")
+
+    now = datetime.utcnow()
+    start_date = datetime(now.year, now.month, now.day, 9, 0, 0)  # 9 AM today
+    
+    # If current time is after 4 PM, start from tomorrow
+    if now.hour >= 16:
+        start_date += timedelta(days=1)
+    
+    end_date = start_date + timedelta(days=7)  # 7 days from start
+    
+    # Get all reservations for the next 7 days
+    reservations = db.query(Reservation).filter(
+        Reservation.space_id == space.id,
+        Reservation.start_time >= start_date,
+        Reservation.end_time <= end_date,
+        Reservation.status.in_(["confirmed", "checked_in"])
+    ).order_by(Reservation.start_time).all()
+
+    # Prepare availability data for each day
+    availabilities = []
+    current_date = start_date
+    
+    while current_date < end_date:
+        day_end = datetime(current_date.year, current_date.month, current_date.day, 16, 0, 0)  # 4 PM
+        current_time = current_date
+        day_slots = []
+        
+        while current_time < day_end:
+            slot_end = current_time + timedelta(hours=1)
+            is_available = True
+            
+            # Skip slots that start before or at current time for today only
+            if current_date.date() == now.date() and current_time <= now:
+                current_time = slot_end
+                continue
+                
+            for res in reservations:
+                if (current_time < res.end_time and slot_end > res.start_time):
+                    is_available = False
+                    break
+            if is_available:
+                day_slots.append(TimeSlot(
+                    start=current_time,
+                    end=slot_end
+                ))
+            current_time += timedelta(hours=1)
+            
+        availabilities.append({
+            "date": current_date.date().isoformat(),
+            "slots": day_slots
+        })
+        current_date = datetime(current_date.year, current_date.month, current_date.day + 1, 9, 0, 0)  # Next day 9 AM
+
+    return {
+        "success": True,
+        "data": {
+            "availabilities": availabilities
+        }
+    }
+
 @router.delete(
     "/{space_id}",
     response_model=dict,

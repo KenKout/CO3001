@@ -245,6 +245,15 @@ export default function Header() {
                   >
                     Profile
                   </Link>
+                  {user?.role === "admin" && (
+                    <Link
+                      href="/admin"
+                      className="block px-4 py-2 text-sm text-foreground hover:bg-accent hover:text-accent-foreground"
+                      onClick={() => setIsProfileOpen(false)}
+                    >
+                      Manage
+                    </Link>
+                  )}
                   <button
                     onClick={() => {
                       logout();
@@ -361,6 +370,15 @@ export default function Header() {
                 >
                   Profile
                 </Link>
+                {user?.role === "admin" && (
+                  <Link 
+                    href="/admin"
+                    className="text-sm text-muted hover:text-foreground transition-colors"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Manage
+                  </Link>
+                )}
                 <button
                   onClick={() => {
                     logout();

@@ -87,9 +87,9 @@ export default function ReportsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
+        <div className="flex flex-col items-center gap-4">
           <div className="w-16 h-16 border-4 border-t-primary rounded-full animate-spin"></div>
-          <p className="mt-4 text-muted">Generating report...</p>
+          <p className="text-muted">Generating report...</p>
         </div>
       </div>
     );

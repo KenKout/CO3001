@@ -435,7 +435,7 @@ async def get_space_availability_week(
             "date": current_date.date().isoformat(),
             "slots": day_slots
         })
-        current_date = datetime(current_date.year, current_date.month, current_date.day + 1, 9, 0, 0)  # Next day 9 AM
+        current_date = (current_date + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)  # Next day 9 AM
 
     return {
         "success": True,

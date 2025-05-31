@@ -113,15 +113,15 @@ export default function PenaltiesPage() {
 
   const getPenaltyTypeColor = (type: string) => {
     switch (type) {
-      case "NO_SHOW":
+      case "no_show":
         return "bg-red-100 text-red-700";
-      case "LATE_ARRIVAL":
+      case "late_arrival":
         return "bg-yellow-100 text-yellow-700";
-      case "DAMAGE":
+      case "damage":
         return "bg-orange-100 text-orange-700";
-      case "NOISE":
+      case "noise":
         return "bg-yellow-100 text-yellow-700";
-      case "UNAUTHORIZED":
+      case "unauthorized":
         return "bg-red-100 text-red-700";
       default:
         return "bg-gray-100 text-gray-700";
@@ -176,9 +176,11 @@ export default function PenaltiesPage() {
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
               >
                 <option value="">All types</option>
-                <option value="NO_SHOW">No Show</option>
-                <option value="LATE_CHECK_IN">Late Check-in</option>
-                <option value="EARLY_CHECK_OUT">Early Check-out</option>
+                <option value="no_show">No Show</option>
+                <option value="late_arrival">Late Arrival</option>
+                <option value="damage">Damage</option>
+                <option value="noise">Noise</option>
+                <option value="unauthorized">Unauthorized Access</option>
               </select>
             </div>
             <div>

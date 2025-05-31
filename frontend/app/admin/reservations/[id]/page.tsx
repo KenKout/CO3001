@@ -60,7 +60,7 @@ export default function ReservationDetailsPage() {
     comment: "",
   });
   const [penaltyData, setPenaltyData] = useState({
-    type: "NO_SHOW",
+    type: "no_show",
     description: "",
   });
 
@@ -109,15 +109,15 @@ export default function ReservationDetailsPage() {
 
   const getPenaltyTypeColor = (type: string) => {
     switch (type) {
-      case "NO_SHOW":
+      case "no_show":
         return "bg-red-100 text-red-700";
-      case "LATE_ARRIVAL":
+      case "late_arrival":
         return "bg-yellow-100 text-yellow-700";
-      case "DAMAGE":
+      case "damage":
         return "bg-orange-100 text-orange-700";
-      case "NOISE":
+      case "noise":
         return "bg-yellow-100 text-yellow-700";
-      case "UNAUTHORIZED":
+      case "unauthorized":
         return "bg-red-100 text-red-700";
       default:
         return "bg-gray-100 text-gray-700";
@@ -360,11 +360,11 @@ export default function ReservationDetailsPage() {
                     onChange={(e) => setPenaltyData({ ...penaltyData, type: e.target.value })}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   >
-                    <option value="NO_SHOW">No Show</option>
-                    <option value="LATE_ARRIVAL">Late Arrival</option>
-                    <option value="DAMAGE">Damage</option>
-                    <option value="NOISE">Noise</option>
-                    <option value="UNAUTHORIZED">Unauthorized Access</option>
+                    <option value="no_show">No Show</option>
+                    <option value="late_arrival">Late Arrival</option>
+                    <option value="damage">Damage</option>
+                    <option value="noise">Noise</option>
+                    <option value="unauthorized">Unauthorized Access</option>
                   </select>
                 </div>
                 <div className="mb-4">
